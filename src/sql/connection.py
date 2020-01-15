@@ -1,6 +1,10 @@
 import sqlalchemy
 import os
 import re
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+import subprocess
 
 class ConnectionError(Exception):
     pass
@@ -25,6 +29,10 @@ class Connection(object):
     current = None
     connections = {}
 
+    def is_presto(self, url):
+        backend = sqlalchemy.engine.url.make_url(url).get_backend_name()
+        return backend == "presto"
+
     @classmethod
     def tell_format(cls):
         return """Connection info needed in SQLAlchemy format, example:
@@ -32,8 +40,27 @@ class Connection(object):
                or an existing connection: %s""" % str(cls.connections.keys())
 
     def __init__(self, connect_str=None):
+        engine = None
         try:
-            engine = sqlalchemy.create_engine(connect_str)
+            if self.is_presto(connect_str):
+                presto_url = os.environ['PRESTO_URL']
+                parsed_conn_string = connect_str.split('/')
+                db = parsed_conn_string[-1]
+                catalog = parsed_conn_string[-2]
+                UID = str(os.getuid())
+                cmd = 'klist |  grep -m 1 -Po "[_a-zA-Z0-9./-]+@[_a-zA-Z0-9.]+$"'
+                ps = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+                principal = ps.communicate()[0].decode("utf-8").strip()
+                args = {'protocol': 'https', \
+                    'KerberosRemoteServiceName': os.environ['KERBEROS_REMOTES_SERVICE_NAME'], \
+                    'KerberosConfigPath':os.environ['KERBEROS_CONFIG_PATH'], \
+                    'KerberosPrincipal': principal, \
+                    'KerberosCredentialCachePath': f'/tmp/krb5cc_{UID}', \
+                    'requests_kwargs': {'verify': False} \
+                    }
+                engine = sqlalchemy.create_engine(f"{presto_url}/{catalog}/{db}", connect_args=args)
+            else:
+                engine = sqlalchemy.create_engine(connect_str)
         except: # TODO: bare except; but what's an ArgumentError?
             print(self.tell_format())
             raise
