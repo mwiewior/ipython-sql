@@ -7,7 +7,7 @@ README = open(os.path.join(here, 'README.rst'), encoding='utf-8').read()
 NEWS = open(os.path.join(here, 'NEWS.txt'), encoding='utf-8').read()
 
 
-version = '0.4.0-getindev'
+version = '0.4.1-getindev'
 
 install_requires = [
     'prettytable<1',
